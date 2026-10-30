@@ -1,0 +1,8 @@
+services:
+  emulsion:
+    build: .
+    image: emulsion:latest
+    container_name: emulsion
+    restart: unless-stopped
+    ports:
+      - "8080:80" # change 8080 si le port est pris sur ton NAS
