@@ -193,7 +193,7 @@ public class PhotoSaverPlugin extends Plugin {
         }
         // même ordre que FilterEffect.NAMES
         String[] keys = {"exposure", "contrast", "saturation", "green", "grain", "vignette", "sharpen", "temperature", "tint",
-            "shadowHue", "shadowAmt", "highlightHue", "highlightAmt", "fade", "bleach", "mono"};
+            "shadowHue", "shadowAmt", "highlightHue", "highlightAmt", "fade", "bleach", "mono", "keepHue", "keepAmt"};
         float[] params = new float[keys.length];
         for (int i = 0; i < keys.length; i++) params[i] = (float) p.optDouble(keys[i], 0);
         VideoExporter.export(getActivity(), path, call.getString("name", "emulsion.mp4"), params, new VideoExporter.Callback() {

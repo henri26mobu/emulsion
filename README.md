@@ -1,6 +1,6 @@
 # Émulsion
 
-Filtres photo et vidéo inspirés du cinéma : Fight Club, Se7en, Matrix, Blade Runner 2049, Mad Max, Grand Budapest, Amélie, Dune, Raging Bull. **100 % local** : l'APK n'a pas la permission réseau, rien ne quitte le téléphone.
+Filtres photo et vidéo inspirés du cinéma : Fight Club, Se7en, Matrix, Blade Runner 2049, Mad Max, Grand Budapest, Amélie, Dune, Raging Bull, Sin City, John Wick 3. **100 % local** : l'APK n'a pas la permission réseau, rien ne quitte le téléphone.
 
 Deux versions du même code React + Vite + TypeScript :
 
@@ -14,12 +14,19 @@ Deux versions du même code React + Vite + TypeScript :
 
 L'appli ne prend pas de photos elle-même : tu prends tes photos avec l'appli caméra du téléphone (modes Pro, Nuit, Portrait, 200 MP, vidéo) et tu appliques le filtre ensuite.
 
+## Compatibilité
+
+- **Android 10 ou plus** (API 29). Les versions plus anciennes ne sont pas prises en charge.
+- Il faut un moteur **WebView avec WebGL2** (Chrome/Android System WebView à jour), présent sur pratiquement tous les téléphones récents.
+- Pas de bibliothèque native : l'APK ne dépend pas de l'architecture du processeur.
+- **Testé uniquement sur un Redmi Note 13 Pro (HyperOS, Android 16).** Sur d'autres appareils, deux points peuvent varier : la taille maximale des photos (limite du GPU, au-delà elles sont réduites) et l'export vidéo (dépend de l'encodeur H.264 du téléphone).
+
 ## Utilisation (APK)
 
 - **Choisir une photo / une vidéo** sur l'écran d'accueil, ou **Partager → Émulsion** depuis la Galerie.
-- Neuf looks de films et **Neutre**, plus les tiens (**+ Enregistrer**, stockés sur l'appareil). Ce sont des interprétations réglées à l'œil, pas les vraies courbes d'étalonnage.
+- Onze looks de films et **Neutre**, plus les tiens (**+ Enregistrer**, stockés sur l'appareil). Ce sont des interprétations réglées à l'œil, pas les vraies courbes d'étalonnage.
 - Sept curseurs de base : exposition, contraste, saturation, teinte verte, grain, vignette, netteté.
-- **Couleurs avancées** : température, vert ↔ magenta, teinte et force des ombres, teinte et force des hautes lumières, noirs relevés, bleach bypass, noir et blanc.
+- **Couleurs avancées** : température, vert ↔ magenta, teinte et force des ombres, teinte et force des hautes lumières, noirs relevés, bleach bypass, noir et blanc, **couleur isolée** (garde une teinte, par exemple le rouge, quand le reste passe en noir et blanc, comme dans Sin City).
 - **Maintenir : original** compare avec l'image sans filtre.
 - **Enregistrer** : photo en JPEG pleine résolution dans `Pictures/Emulsion`, vidéo en MP4 H.264 dans `Movies/Emulsion`. Les deux apparaissent dans la Galerie.
 - **Partager** : enregistre d'abord, puis ouvre la feuille de partage Android.
@@ -50,6 +57,10 @@ emulsion/
 ```
 
 **Le filtre existe en deux exemplaires** : `src/filter.ts` (photos et aperçu, WebGL2) et `FilterEffect.java` (export vidéo, GLSL ES 1.00). Si tu changes la formule d'un côté, change-la de l'autre, sinon l'aperçu et l'export divergent. Seul le hash du grain diffère volontairement.
+
+## Versions
+
+Une étiquette `vX.Y.Z` déclenche `.github/workflows/release.yml` : l'APK est construit et publié dans les *Releases* du dépôt. L'APK est signé avec la clé de **debug** : il s'installe directement, mais une publication sur un store demandera une clé de signature à toi.
 
 ## Intégration continue
 

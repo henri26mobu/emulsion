@@ -12,7 +12,7 @@ import androidx.media3.effect.GlShaderProgram;
 
 /**
  * Même filtre que src/filter.ts, porté en GLSL ES 1.00 (compatible avec tous les contextes GL de Media3).
- * p = les 16 valeurs de Params, dans l'ordre de NAMES (le même que les clés de PhotoSaverPlugin.exportVideo).
+ * p = les 18 valeurs de Params, dans l'ordre de NAMES (le même que les clés de PhotoSaverPlugin.exportVideo).
  * Le grain utilise un hash flottant plutôt que le hash entier du web : même rendu, graines différentes.
  */
 final class FilterEffect implements GlEffect {
@@ -33,7 +33,7 @@ final class FilterEffect implements GlEffect {
             + "uniform sampler2D uTexSampler;\n"
             + "uniform vec2 uSize;\n"
             + "uniform float uSeed, uExposure, uContrast, uSaturation, uGreen, uGrain, uVignette, uSharpen;\n"
-            + "uniform float uTemp, uTint, uShHue, uShAmt, uHiHue, uHiAmt, uFade, uBleach, uMono;\n"
+            + "uniform float uTemp, uTint, uShHue, uShAmt, uHiHue, uHiAmt, uFade, uBleach, uMono, uKeepHue, uKeepAmt;\n"
             + "float luma(vec3 c) { return dot(c, vec3(0.2126, 0.7152, 0.0722)); }\n"
             + "vec3 hueTone(float h) {\n"
             + "  vec3 k = clamp(abs(fract(h + vec3(1.0, 2.0 / 3.0, 1.0 / 3.0)) * 6.0 - 3.0) - 1.0, 0.0, 1.0);\n"
@@ -43,6 +43,14 @@ final class FilterEffect implements GlEffect {
             + "  p = fract(p * vec2(0.1031, 0.1030));\n"
             + "  p += dot(p, p.yx + 33.33);\n"
             + "  return fract((p.x + p.y) * p.x);\n"
+            + "}\n"
+            + "float keepMask(vec3 col) {\n"
+            + "  float mx = max(col.r, max(col.g, col.b));\n"
+            + "  float d = mx - min(col.r, min(col.g, col.b));\n"
+            + "  if (d < 0.001) return 0.0;\n"
+            + "  float h = col.r == mx ? mod((col.g - col.b) / d, 6.0) : (col.g == mx ? (col.b - col.r) / d + 2.0 : (col.r - col.g) / d + 4.0);\n"
+            + "  float dh = abs(fract(h / 6.0 - uKeepHue + 0.5) - 0.5);\n"
+            + "  return (1.0 - smoothstep(0.02, 0.07, dh)) * smoothstep(0.35, 0.6, d / max(mx, 0.001));\n"
             + "}\n"
             + "void main() {\n"
             + "  vec3 c = texture2D(uTexSampler, uv).rgb;\n"
@@ -66,7 +74,9 @@ final class FilterEffect implements GlEffect {
             + "  c = mix(c, mix(2.0 * c * lb, 1.0 - 2.0 * (1.0 - c) * (1.0 - lb), step(0.5, c)), uBleach);\n"
             + "  float l = luma(c);\n"
             + "  c = mix(vec3(l), c, 1.0 + uSaturation);\n"
+            + "  vec3 colored = c;\n"
             + "  c = mix(c, vec3(luma(c)), uMono);\n"
+            + "  c = mix(c, colored, keepMask(colored) * uKeepAmt);\n"
             + "  l = luma(c);\n"
             + "  float sh = 1.0 - smoothstep(0.0, 0.6, l);\n"
             + "  float hi = smoothstep(0.4, 1.0, l);\n"
@@ -85,10 +95,10 @@ final class FilterEffect implements GlEffect {
             + "}\n";
 
     // ordre des valeurs de p : exposure, contrast, saturation, green, grain, vignette, sharpen, temperature, tint,
-    // shadowHue, shadowAmt, highlightHue, highlightAmt, fade, bleach, mono
+    // shadowHue, shadowAmt, highlightHue, highlightAmt, fade, bleach, mono, keepHue, keepAmt
     static final String[] NAMES = {
         "uExposure", "uContrast", "uSaturation", "uGreen", "uGrain", "uVignette", "uSharpen", "uTemp", "uTint",
-        "uShHue", "uShAmt", "uHiHue", "uHiAmt", "uFade", "uBleach", "uMono"
+        "uShHue", "uShAmt", "uHiHue", "uHiAmt", "uFade", "uBleach", "uMono", "uKeepHue", "uKeepAmt"
     };
 
     private final float[] p;

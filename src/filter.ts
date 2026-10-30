@@ -18,11 +18,13 @@ export interface Params {
   fade: number // 0..1 : noirs relevés
   bleach: number // 0..1 : bleach bypass (contraste sale, couleurs lavées)
   mono: number // 0..1 : noir et blanc
+  keepHue: number // 0..1 : couleur conservée quand le reste passe en noir et blanc (style Sin City)
+  keepAmt: number // 0..1
 }
 
 export const NEUTRAL: Params = {
   exposure: 0, contrast: 0, saturation: 0, green: 0, grain: 0, vignette: 0, sharpen: 0,
-  temperature: 0, tint: 0, shadowHue: 0, shadowAmt: 0, highlightHue: 0, highlightAmt: 0, fade: 0, bleach: 0, mono: 0,
+  temperature: 0, tint: 0, shadowHue: 0, shadowAmt: 0, highlightHue: 0, highlightAmt: 0, fade: 0, bleach: 0, mono: 0, keepHue: 0, keepAmt: 0,
 }
 
 export const FIGHT_CLUB: Params = {
@@ -62,13 +64,15 @@ export const SLIDERS: SliderDef[] = [
   { key: 'fade', label: 'Noirs relevés', min: 0, max: 1, group: 'adv' },
   { key: 'bleach', label: 'Bleach bypass', min: 0, max: 1, group: 'adv' },
   { key: 'mono', label: 'Noir et blanc', min: 0, max: 1, group: 'adv' },
+  { key: 'keepHue', label: 'Couleur isolée', min: 0, max: 1, group: 'adv', hue: true },
+  { key: 'keepAmt', label: 'Isolée : force', min: 0, max: 1, group: 'adv' },
 ]
 
 // uniforme du shader → paramètre ; une seule table pour déclarer et envoyer les valeurs
 const UNIFORMS = {
   uExposure: 'exposure', uContrast: 'contrast', uSaturation: 'saturation', uGreen: 'green', uGrain: 'grain',
   uVignette: 'vignette', uSharpen: 'sharpen', uTemp: 'temperature', uTint: 'tint', uShHue: 'shadowHue',
-  uShAmt: 'shadowAmt', uHiHue: 'highlightHue', uHiAmt: 'highlightAmt', uFade: 'fade', uBleach: 'bleach', uMono: 'mono',
+  uShAmt: 'shadowAmt', uHiHue: 'highlightHue', uHiAmt: 'highlightAmt', uFade: 'fade', uBleach: 'bleach', uMono: 'mono', uKeepHue: 'keepHue', uKeepAmt: 'keepAmt',
 } as const satisfies Record<string, keyof Params>
 
 const VERT = `#version 300 es
@@ -90,7 +94,7 @@ uniform sampler2D tex;
 uniform vec2 uSize;      // taille de la source en pixels
 uniform float uSeed;
 uniform float uExposure, uContrast, uSaturation, uGreen, uGrain, uVignette, uSharpen;
-uniform float uTemp, uTint, uShHue, uShAmt, uHiHue, uHiAmt, uFade, uBleach, uMono;
+uniform float uTemp, uTint, uShHue, uShAmt, uHiHue, uHiAmt, uFade, uBleach, uMono, uKeepHue, uKeepAmt;
 
 float luma(vec3 c) { return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
 
@@ -105,6 +109,16 @@ float hash(uvec2 v) {
   uint s = v.x * 1664525u + v.y * 1013904223u + uint(uSeed);
   s ^= s >> 16; s *= 2246822519u; s ^= s >> 13; s *= 3266489917u; s ^= s >> 16;
   return float(s) / 4294967295.0;
+}
+
+// 1 si la couleur est proche de la teinte à conserver (et assez saturée), 0 sinon
+float keepMask(vec3 col) {
+  float mx = max(col.r, max(col.g, col.b));
+  float d = mx - min(col.r, min(col.g, col.b));
+  if (d < 0.001) return 0.0;
+  float h = col.r == mx ? mod((col.g - col.b) / d, 6.0) : (col.g == mx ? (col.b - col.r) / d + 2.0 : (col.r - col.g) / d + 4.0);
+  float dh = abs(fract(h / 6.0 - uKeepHue + 0.5) - 0.5);
+  return (1.0 - smoothstep(0.02, 0.07, dh)) * smoothstep(0.35, 0.6, d / max(mx, 0.001));
 }
 
 void main() {
@@ -142,7 +156,9 @@ void main() {
 
   float l = luma(c);
   c = mix(vec3(l), c, 1.0 + uSaturation);
+  vec3 colored = c;
   c = mix(c, vec3(luma(c)), uMono);
+  c = mix(c, colored, keepMask(colored) * uKeepAmt); // couleur isolée
 
   // Split-toning : ombres vert/cyan, hautes lumières jaunâtres
   l = luma(c);

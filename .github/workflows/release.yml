@@ -1,0 +1,52 @@
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write # nécessaire pour créer la Release
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools platforms;android-35 build-tools;35.0.0
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - run: npm ci
+      - run: npm run build
+      - run: npx cap sync android
+      - run: ./gradlew assembleDebug --no-daemon
+        working-directory: android
+
+      - name: Publier la Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cp android/app/build/outputs/apk/debug/app-debug.apk "emulsion-${GITHUB_REF_NAME}.apk"
+          gh release create "$GITHUB_REF_NAME" "emulsion-${GITHUB_REF_NAME}.apk" \
+            --title "Émulsion ${GITHUB_REF_NAME#v}" \
+            --notes "Filtres photo et vidéo inspirés du cinéma, 100 % local (aucune permission réseau).
+
+          - 11 looks de films, plus un mode Neutre et tes propres préréglages
+          - Photo : enregistrement dans Pictures/Emulsion, partage, réception depuis « Partager » de la Galerie
+          - Vidéo : aperçu en direct, export H.264 avec le son dans Movies/Emulsion
+          - Réglages de base et avancés (couleurs, noirs relevés, bleach bypass, noir et blanc, couleur isolée)
+
+          **Installation** : télécharge l'APK ci-dessous sur ton téléphone et ouvre-le. Android 10 ou plus. APK signé avec la clé de debug."

@@ -43,6 +43,13 @@ export const BUILTIN: Preset[] = [
     shadowHue: 0.06, shadowAmt: 0.4, highlightHue: 0.08, highlightAmt: 0.6, grain: 0.3, vignette: 0.35, sharpen: 0.3,
   }),
   film('Raging Bull', { exposure: -0.05, contrast: 0.45, fade: 0.05, mono: 1, grain: 0.6, vignette: 0.5, sharpen: 0.3 }),
+  // Sin City : numérique converti en noir et blanc très contrasté, avec une couleur isolée (le rouge)
+  film('Sin City', { exposure: 0.05, contrast: 0.8, sharpen: 0.6, grain: 0.12, vignette: 0.2, mono: 1, keepHue: 0, keepAmt: 1 }),
+  // John Wick 3 : noirs profonds, couleurs néon, ombres bleu-teal, lumières magenta/orange
+  film('John Wick 3', {
+    exposure: -0.2, contrast: 0.4, saturation: 0.2, temperature: -0.05,
+    shadowHue: 0.58, shadowAmt: 0.5, highlightHue: 0.9, highlightAmt: 0.45, grain: 0.1, vignette: 0.35, sharpen: 0.4,
+  }),
   { name: 'Neutre', params: NEUTRAL, builtin: true },
 ]
 
