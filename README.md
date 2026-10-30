@@ -144,3 +144,11 @@ Le conteneur parle en HTTP. Pour le HTTPS, mets devant lui un reverse proxy (Syn
 - Le shader suppose du SDR : une vidéo HDR (HDR10+, Dolby Vision) peut avoir des couleurs fausses.
 - Une photo ou vidéo reçue est copiée dans le cache de l'appli avant traitement : prévoir de la place pour les grosses vidéos.
 - Les photos dépassant la taille maximale de texture du GPU sont réduites à cette taille.
+
+## Licence
+
+[GPL-3.0](LICENSE). Les bibliothèques utilisées (React, Capacitor, Media3…) ont leurs propres licences, compatibles.
+
+## Mentions
+
+Les noms de films cités (Fight Club, Se7en, Matrix, Blade Runner 2049, Mad Max, Grand Budapest, Amélie, Dune, Raging Bull, Sin City, John Wick 3) servent uniquement à décrire l'ambiance visuelle dont chaque préréglage s'inspire. Ils appartiennent à leurs détenteurs respectifs. Émulsion n'est affiliée à aucun de ces films, studios ou ayants droit, et n'en reproduit aucun contenu : les préréglages sont de simples réglages de couleurs, interprétés à l'œil.
