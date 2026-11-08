@@ -14,6 +14,10 @@ import javax.microedition.khronos.opengles.GL10
 class FilterRenderer(private val redraw: () -> Unit) : GLSurfaceView.Renderer {
     @Volatile var params = FloatArray(SLIDERS.size)
     @Volatile var original = false // « Maintenir : original »
+    @Volatile var split = -1f // avant/après : position du trait en uv (-1 = désactivé)
+
+    /** x en pixels de la vue -> uv dans l'image affichée. */
+    fun splitAt(x: Float) { val k = minOf(vw.toFloat() / maxOf(dw, 1), vh.toFloat() / maxOf(dh, 1)); val w = dw * k; if (w > 0) split = ((x - (vw - w) / 2) / w).coerceIn(0f, 1f) }
     private var f2d: FilterGl? = null
     private var fext: FilterGl? = null
     private var tex = 0
@@ -78,16 +82,16 @@ class FilterRenderer(private val redraw: () -> Unit) : GLSurfaceView.Renderer {
         val w = (dw * k).toInt(); val h = (dh * k).toInt()
         if (vidW > 0) {
             val s = st ?: return
-            if (newFrame) { newFrame = false; s.updateTexImage(); s.getTransformMatrix(tm); map = videoMap(tm.copyOf()); if (frames++ == 3) android.util.Log.i("emu", "tm=${tm.joinToString()} dw=$dw dh=$dh vw=$vw vh=$vh") }
+            if (newFrame) { newFrame = false; s.updateTexImage(); s.getTransformMatrix(tm); map = videoMap(tm.copyOf()); frames++ }
             val m = map ?: return
             G.glViewport((vw - w) / 2, (vh - h) / 2, w, h)
             G.glActiveTexture(G.GL_TEXTURE0); G.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, extId)
-            fext!!.draw(p, m, dw, dh, 0f, 0f, 1f, 1f, 1f, frames.toFloat())
+            fext!!.draw(p, m, dw, dh, 0f, 0f, 1f, 1f, 1f, frames.toFloat(), split)
         } else {
             val m = map ?: return
             G.glViewport((vw - w) / 2, (vh - h) / 2, w, h)
             G.glActiveTexture(G.GL_TEXTURE0); G.glBindTexture(G.GL_TEXTURE_2D, tex)
-            f2d!!.draw(p, m, dw, dh, 0f, 0f, 1f, 1f, 1f)
+            f2d!!.draw(p, m, dw, dh, 0f, 0f, 1f, 1f, 1f, 1f, split)
         }
     }
 

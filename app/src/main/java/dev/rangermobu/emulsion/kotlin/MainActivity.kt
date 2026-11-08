@@ -19,7 +19,10 @@ import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.content.ClipboardManager
+import android.content.Context
 import android.widget.*
+import org.json.JSONObject
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -48,6 +51,8 @@ class MainActivity : Activity() {
     private var player: MediaPlayer? = null
     private var wasPlaying = false
     private var busy = false
+    private var quality = 92
+    private lateinit var curves: CurveView
 
     private fun dp(x: Int) = (x * resources.displayMetrics.density).toInt()
     private fun ui(f: () -> Unit) = runOnUiThread(f)
@@ -71,6 +76,7 @@ class MainActivity : Activity() {
         renderer.params = BUILTIN[0].p.copyOf()
         renderer.error = { say(it) }
         gl.apply { setEGLContextClientVersion(3); setPreserveEGLContextOnPause(true); setRenderer(renderer); renderMode = GLSurfaceView.RENDERMODE_WHEN_DIRTY }
+        gl.setOnTouchListener { _, e -> if (renderer.split >= 0f) { renderer.splitAt(e.x); gl.requestRender(); true } else false } // avant/après : glisser
         gl.setOnClickListener { player?.let { if (it.isPlaying) it.pause() else it.start() } } // vidéo : touche = pause
 
         // accueil
@@ -93,15 +99,17 @@ class MainActivity : Activity() {
                 true
             }
         }
+        val ba = chip("Avant | Après") { renderer.split = if (renderer.split < 0f) 0.5f else -1f; gl.requestRender() }
         val top = LinearLayout(this).apply {
             setPadding(dp(16), dp(8), dp(16), dp(8)); gravity = Gravity.CENTER_VERTICAL
-            addView(backBtn); addView(View(this@MainActivity), LinearLayout.LayoutParams(0, 1, 1f)); addView(orig)
+            addView(backBtn); addView(View(this@MainActivity), LinearLayout.LayoutParams(0, 1, 1f)); addView(ba, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(8) }); addView(orig)
         }
         presets = LinearLayout(this)
         val adv = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; visibility = View.GONE }
         val panel = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(16), dp(10), dp(16), dp(16)) }
         panel.addView(HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false; addView(presets) })
         for ((i, d) in SLIDERS.withIndex()) {
+            if (d.hidden) { bars += SeekBar(this); vals += TextView(this); continue } // courbes : éditées par CurveView
             val v = TextView(this).apply { textSize = 12f; setTextColor(DIM); gravity = Gravity.END }
             val bar = SeekBar(this).apply {
                 max = 1000
@@ -131,12 +139,22 @@ class MainActivity : Activity() {
             text = "Couleurs avancées ▸"; textSize = 13f; setTextColor(DIM); setPadding(0, dp(10), 0, dp(10))
             setOnClickListener { val o = adv.visibility != View.VISIBLE; adv.visibility = if (o) View.VISIBLE else View.GONE; text = if (o) "Couleurs avancées ▾" else "Couleurs avancées ▸" }
         })
+        curves = CurveView(this, { renderer.params }) { gl.requestRender() }
+        adv.addView(TextView(this).apply { text = "Courbes (L, R, V, B)"; textSize = 13f; setTextColor(DIM); setPadding(0, dp(10), 0, dp(4)) })
+        adv.addView(curves, LinearLayout.LayoutParams(dp(260), -2))
+        adv.addView(chip("Importer une LUT .cube") { startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).setType("*/*").addCategory(Intent.CATEGORY_OPENABLE), 4) }, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(10) })
         panel.addView(adv)
         saveBtn = chip("Enregistrer JPEG") { export(false) }
         shareBtn = chip("Partager", true) { export(true) }
         panel.addView(LinearLayout(this).apply {
             addView(saveBtn, LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginEnd = dp(10) }); addView(shareBtn, LinearLayout.LayoutParams(0, dp(48), 1f))
         }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) })
+        panel.addView(LinearLayout(this).apply {
+            val q = chip("Qualité JPEG : $quality") {}
+            q.setOnClickListener { quality = when (quality) { 70 -> 85; 85 -> 92; 92 -> 100; else -> 70 }; q.text = "Qualité JPEG : $quality" }
+            addView(q, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(10) })
+            addView(chip("Lot de photos") { startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).setType("image/*").addCategory(Intent.CATEGORY_OPENABLE).putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true), 3) }, LinearLayout.LayoutParams(0, -2, 1f))
+        }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
         progress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply { max = 100; visibility = View.GONE; progressTintList = android.content.res.ColorStateList.valueOf(ACCENT) }
         msg = TextView(this).apply { textSize = 13f; setTextColor(DIM); gravity = Gravity.CENTER; setPadding(0, dp(10), 0, 0) }
         panel.addView(progress); panel.addView(msg)
@@ -160,6 +178,7 @@ class MainActivity : Activity() {
 
     @Suppress("DEPRECATION")
     private fun handle(i: Intent) {
+        if (i.action == Intent.ACTION_SEND && i.type?.startsWith("text/") == true) { importPreset(i.getStringExtra(Intent.EXTRA_TEXT)); return }
         val uri = when (i.action) {
             Intent.ACTION_SEND -> i.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)
             Intent.ACTION_VIEW -> i.data
@@ -173,8 +192,18 @@ class MainActivity : Activity() {
 
     @Deprecated("pas d'AndroidX : API Activity classique")
     override fun onActivityResult(req: Int, res: Int, data: Intent?) {
-        val uri = data?.data ?: return
-        if (res == RESULT_OK) open(uri, if (req == 2) "video/*" else "image/*")
+        if (res != RESULT_OK || data == null) return
+        val c = data.clipData
+        val uris = if (c != null) List(c.itemCount) { c.getItemAt(it).uri } else listOfNotNull(data.data)
+        val uri = uris.firstOrNull() ?: return
+        when (req) {
+            3 -> exportBatch(uris)
+            4 -> try {
+                LutStore.cur = LutStore.parse(contentResolver.openInputStream(uri)!!.use { it.readBytes().decodeToString() })
+                applyParams(renderer.params.also { it[SLIDERS.indexOfFirst { s -> s.key == "lut" }] = 1f })
+            } catch (e: Throwable) { fail("LUT impossible", e) }
+            else -> open(uri, if (req == 2) "video/*" else "image/*")
+        }
     }
 
     private fun open(uri: Uri, type: String?) {
@@ -184,7 +213,15 @@ class MainActivity : Activity() {
     private fun applyParams(p: FloatArray) {
         System.arraycopy(p, 0, renderer.params, 0, p.size)
         for ((i, d) in SLIDERS.withIndex()) bars[i].progress = ((p[i] - d.min) / (d.max - d.min) * 1000).toInt()
-        gl.requestRender()
+        curves.invalidate(); gl.requestRender()
+    }
+
+    private fun importPreset(s: String?) {
+        try {
+            val p = Custom.fromJson(JSONObject(s!!.trim()))
+            custom.removeAll { it.name == p.name }; custom.add(p); Custom.save(this, custom); refreshPresets()
+            Toast.makeText(this, "Préréglage « ${p.name} » importé", Toast.LENGTH_SHORT).show()
+        } catch (e: Exception) { Toast.makeText(this, "Aucun préréglage valide", Toast.LENGTH_SHORT).show() }
     }
 
     private fun refreshPresets() {
@@ -193,11 +230,17 @@ class MainActivity : Activity() {
         for (p in BUILTIN) add(chip(p.name) { applyParams(p.p) })
         for (p in custom) add(LinearLayout(this).apply {
             gravity = Gravity.CENTER_VERTICAL; background = bg({ setStroke(1, LINE) }, CHIP)
-            addView(TextView(this@MainActivity).apply { text = p.name; textSize = 13f; setTextColor(0xFFE8ECE9.toInt()); setPadding(dp(14), dp(9), dp(8), dp(9)); setOnClickListener { applyParams(p.p) } })
+            addView(TextView(this@MainActivity).apply { text = p.name; textSize = 13f; setTextColor(0xFFE8ECE9.toInt()); setPadding(dp(14), dp(9), dp(8), dp(9)); setOnClickListener { applyParams(p.p) }
+                setOnLongClickListener { // appui long : partager le préréglage (JSON)
+                    startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, Custom.toJson(p).toString()), null)); true }
+            })
             addView(TextView(this@MainActivity).apply {
                 text = "×"; textSize = 16f; setTextColor(DIM); setPadding(dp(8), dp(5), dp(12), dp(5)); contentDescription = "Supprimer ${p.name}"
                 setOnClickListener { custom.remove(p); Custom.save(this@MainActivity, custom); refreshPresets() }
             })
+        })
+        add(chip("Importer (presse-papiers)") {
+            importPreset((getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).primaryClip?.getItemAt(0)?.text?.toString())
         })
         add(chip("+ Enregistrer") {
             val e = EditText(this).apply { hint = "Nom"; filters = arrayOf(InputFilter.LengthFilter(24)); setSingleLine() }
@@ -226,17 +269,59 @@ class MainActivity : Activity() {
 
     private fun fail(what: String, e: Throwable) = say("$what : ${e.message ?: e.javaClass.simpleName}")
 
+    private fun exifRot(f: File) = when (ExifInterface(f.path).getAttributeInt(ExifInterface.TAG_ORIENTATION, 1)) {
+        ExifInterface.ORIENTATION_ROTATE_90 -> 90
+        ExifInterface.ORIENTATION_ROTATE_180 -> 180
+        ExifInterface.ORIENTATION_ROTATE_270 -> 270
+        else -> 0
+    }
+
+    /** Crée l'entrée MediaStore (album Emulsion), laisse [write] remplir le fichier, puis la publie ; supprime l'entrée si ça échoue. */
+    private fun saveMedia(vid: Boolean, name: String, write: (Uri) -> Unit): Uri {
+        val cr = contentResolver
+        val v = ContentValues().apply {
+            put(MediaStore.MediaColumns.DISPLAY_NAME, "$name." + if (vid) "mp4" else "jpg")
+            put(MediaStore.MediaColumns.MIME_TYPE, if (vid) "video/mp4" else "image/jpeg")
+            put(MediaStore.MediaColumns.RELATIVE_PATH, if (vid) "Movies/Emulsion" else "Pictures/Emulsion")
+            put(MediaStore.MediaColumns.IS_PENDING, 1)
+        }
+        val uri = requireNotNull(cr.insert(if (vid) MediaStore.Video.Media.EXTERNAL_CONTENT_URI else MediaStore.Images.Media.EXTERNAL_CONTENT_URI, v)) { "MediaStore a refusé la création du fichier" }
+        try {
+            write(uri)
+            cr.update(uri, ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) }, null, null)
+        } catch (e: Throwable) { cr.delete(uri, null, null); throw e }
+        return uri
+    }
+
+    /** Lot : applique les réglages courants à plusieurs photos, une par une (l'écran doit rester ouvert). */
+    private fun exportBatch(uris: List<Uri>) {
+        if (busy || uris.isEmpty()) return
+        setBusy(true)
+        val p = renderer.params.copyOf(); val q = quality
+        thread {
+            val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+            val f = File(cacheDir, "batch"); var ok = 0
+            try {
+                for ((n, u) in uris.withIndex()) {
+                    say("Photo ${n + 1}/${uris.size}…")
+                    try {
+                        contentResolver.openInputStream(u)!!.use { i -> f.outputStream().use { i.copyTo(it, 1 shl 16) } }
+                        val r = exifRot(f)
+                        saveMedia(false, "Emulsion_${stamp}_${n + 1}") { o -> contentResolver.openOutputStream(o)!!.buffered(1 shl 16).use { Exporter.export(f, r, p, it, q) { x -> ui { progress.progress = x } } } }
+                        ok++
+                    } catch (e: Throwable) { fail("Photo ${n + 1}", e) }
+                }
+                say("$ok/${uris.size} photos enregistrées dans Pictures/Emulsion")
+            } finally { f.delete(); setBusy(false) }
+        }
+    }
+
     private fun openPhoto(uri: Uri) {
         thread {
             try {
                 // copie du flux dans le cache : BitmapRegionDecoder et ExifInterface veulent un fichier seekable
                 contentResolver.openInputStream(uri)!!.use { i -> src.outputStream().use { i.copyTo(it, 1 shl 16) } }
-                val r = when (ExifInterface(src.path).getAttributeInt(ExifInterface.TAG_ORIENTATION, 1)) {
-                    ExifInterface.ORIENTATION_ROTATE_90 -> 90
-                    ExifInterface.ORIENTATION_ROTATE_180 -> 180
-                    ExifInterface.ORIENTATION_ROTATE_270 -> 270
-                    else -> 0
-                }
+                val r = exifRot(src)
                 val o = BitmapFactory.Options().apply { inJustDecodeBounds = true }
                 BitmapFactory.decodeFile(src.path, o)
                 var s = 1
@@ -291,39 +376,25 @@ class MainActivity : Activity() {
         if (busy) return
         val vid = video
         setBusy(true); say(if (vid != null) "Export de la vidéo… 0 %" else "Export de la photo… 0 %")
-        val p = renderer.params.copyOf()
+        val p = renderer.params.copyOf(); val q = quality
         thread {
-            val cr = contentResolver
             val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-            val coll = if (vid != null) MediaStore.Video.Media.EXTERNAL_CONTENT_URI else MediaStore.Images.Media.EXTERNAL_CONTENT_URI
-            val mime = if (vid != null) "video/mp4" else "image/jpeg"
-            val v = ContentValues().apply {
-                put(MediaStore.MediaColumns.DISPLAY_NAME, "Emulsion_$stamp." + if (vid != null) "mp4" else "jpg")
-                put(MediaStore.MediaColumns.MIME_TYPE, mime)
-                put(MediaStore.MediaColumns.RELATIVE_PATH, if (vid != null) "Movies/Emulsion" else "Pictures/Emulsion")
-                put(MediaStore.MediaColumns.IS_PENDING, 1)
-            }
-            val uri = cr.insert(coll, v)
             try {
-                requireNotNull(uri) { "MediaStore a refusé la création du fichier" }
                 val prog = { x: Int -> ui { progress.progress = x; msg.text = (if (vid != null) "Export de la vidéo… " else "Export de la photo… ") + x + " %" } }
                 var info = ""
-                if (vid != null) {
-                    cr.openFileDescriptor(uri, "rw")!!.use { VideoExporter.export(this, vid, p, it.fileDescriptor, prog) }
-                } else {
-                    val (w, h) = cr.openOutputStream(uri)!!.buffered(1 shl 16).use { Exporter.export(src, rot, p, it, 92, prog) }
-                    info = " (${w}×$h, ${cr.openAssetFileDescriptor(uri, "r")!!.use { it.length } / 1_000_000} Mo)"
+                val uri = saveMedia(vid != null, "Emulsion_$stamp") { o ->
+                    if (vid != null) contentResolver.openFileDescriptor(o, "rw")!!.use { VideoExporter.export(this, vid, p, it.fileDescriptor, prog) }
+                    else {
+                        val (w, h) = contentResolver.openOutputStream(o)!!.buffered(1 shl 16).use { Exporter.export(src, rot, p, it, q, prog) }
+                        info = " (${w}×$h)"
+                    }
                 }
-                cr.update(uri, ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) }, null, null)
                 say("Enregistré dans " + (if (vid != null) "Movies" else "Pictures") + "/Emulsion" + info)
                 if (share) ui {
-                    startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType(mime).putExtra(Intent.EXTRA_STREAM, uri)
+                    startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType(if (vid != null) "video/mp4" else "image/jpeg").putExtra(Intent.EXTRA_STREAM, uri)
                         .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION), null))
                 }
-            } catch (e: Throwable) {
-                uri?.let { cr.delete(it, null, null) }
-                fail("Export impossible", e)
-            } finally { setBusy(false) }
+            } catch (e: Throwable) { fail("Export impossible", e) } finally { setBusy(false) }
         }
     }
 }

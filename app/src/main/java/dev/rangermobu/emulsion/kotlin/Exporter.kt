@@ -38,7 +38,7 @@ object Exporter {
             val rw = bo.outWidth / s; val rh = bo.outHeight / s
             val swap = rot % 180 != 0
             val ow = if (swap) rh else rw; val oh = if (swap) rw else rh
-            val halo = ceil(minOf(ow, oh) / 1400f).toInt() + 2
+            val halo = ceil(minOf(ow, oh) / 60f).toInt() + 2 // couvre le rayon de l'halation (min/70)
 
             val ids = IntArray(2)
             G.glGenTextures(2, ids, 0) // [0] = bande de sortie, [1] = source
@@ -64,8 +64,7 @@ object Exporter {
             val rows = ByteArray(ow * BAND * 4)
             val jpg = JpegWriter(out, ow, oh, quality)
             try {
-                var y0 = 0; var tD = 0L; var tG = 0L; var tJ = 0L; var t = System.nanoTime()
-                fun lap() = (System.nanoTime() - t).also { t = System.nanoTime() }
+                var y0 = 0
                 while (y0 < oh) {
                     val n = minOf(BAND, oh - y0)
                     val m: TexMap
@@ -83,7 +82,6 @@ object Exporter {
                         G.glBindTexture(G.GL_TEXTURE_2D, ids[1])
                         GLUtils.texImage2D(G.GL_TEXTURE_2D, 0, bm, 0); bm.recycle()
                     } else m = wholeMap!!
-                    tD += lap()
                     G.glBindFramebuffer(G.GL_FRAMEBUFFER, fbo[0])
                     G.glViewport(0, 0, ow, n)
                     G.glActiveTexture(G.GL_TEXTURE0); G.glBindTexture(G.GL_TEXTURE_2D, ids[1])
@@ -91,14 +89,11 @@ object Exporter {
                     buf.clear()
                     G.glReadPixels(0, 0, ow, n, G.GL_RGBA, G.GL_UNSIGNED_BYTE, buf)
                     buf.get(rows, 0, ow * n * 4)
-                    tG += lap()
                     jpg.addRows(rows, n)
-                    tJ += lap()
                     y0 += n
                     progress(y0 * 100 / oh)
                 }
                 jpg.finish()
-                android.util.Log.i("emu", "decode ${tD / 1000000} ms, gl ${tG / 1000000} ms, jpeg ${tJ / 1000000} ms")
             } finally { dec?.recycle() }
             return ow to oh
         } finally { egl.release() }

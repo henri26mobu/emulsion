@@ -4,6 +4,8 @@ Filtres photo et vidéo inspirés du cinéma (Fight Club, Se7en, Matrix, Blade R
 
 Application Android native en Kotlin + OpenGL ES 3, sans dépendance (ni AndroidX, ni Compose).
 
+- 22 presets (films célèbres, looks classiques), LUT `.cube`, courbes RVB, halation, grain réglable, bandes cinémascope, perforations, poussière
+- Avant/après glissant, lot de photos, presets partageables (JSON)
 - Photos : export JPEG pleine résolution par bandes (mémoire basse)
 - Vidéos : export GPU, son conservé
 - Réception via « Partager » de la Galerie, enregistrement dans l'album Emulsion

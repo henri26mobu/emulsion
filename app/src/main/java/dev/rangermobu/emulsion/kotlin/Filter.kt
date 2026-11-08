@@ -37,6 +37,9 @@ uniform mat2 uM;
 uniform vec2 uSize;      // taille de l'image complète (affichage) en pixels
 uniform float uSeed;
 uniform float uExposure, uContrast, uSaturation, uGreen, uGrain, uVignette, uSharpen;
+uniform float uDilute, uHalation, uGrainSize, uGrainCol, uBars, uPerf, uDust, uLutAmt, uLutN, uSplit;
+uniform float uCL1, uCL2, uCL3, uCR1, uCR2, uCR3, uCG1, uCG2, uCG3, uCB1, uCB2, uCB3;
+uniform highp sampler3D lutTex;
 uniform float uTemp, uTint, uShHue, uShAmt, uHiHue, uHiAmt, uFade, uBleach, uMono, uKeepHue, uKeepAmt;
 
 float luma(vec3 c) { return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
@@ -52,6 +55,9 @@ float hash(uvec2 v) {
   return float(s) / 4294967295.0;
 }
 
+float bump(float x, float c) { float s = clamp(1.0 - abs(x - c) * 4.0, 0.0, 1.0); return s * s * (3.0 - 2.0 * s); }
+float curve(float x, float a, float b, float c) { return x + a * bump(x, 0.25) + b * bump(x, 0.5) + c * bump(x, 0.75); }
+
 float keepMask(vec3 col) {
   float mx = max(col.r, max(col.g, col.b));
   float d = mx - min(col.r, min(col.g, col.b));
@@ -63,9 +69,21 @@ float keepMask(vec3 col) {
 
 void main() {
   vec3 c = texture(tex, tuv).rgb;
+  vec3 c0 = c;
+  float short_ = min(uSize.x, uSize.y);
+
+  if (uHalation > 0.0) {
+    vec2 hs = vec2(short_ / uSize.x, short_ / uSize.y) / 70.0;
+    vec3 acc = vec3(0.0);
+    for (int i = 0; i < 12; i++) {
+      float a = float(i) * 0.5236;
+      vec2 o = uM * (vec2(cos(a), sin(a)) * hs * ((i % 2 == 0) ? 1.0 : 0.5));
+      acc += max(texture(tex, tuv + o).rgb - 0.6, 0.0);
+    }
+    c += acc / 12.0 * vec3(1.0, 0.35, 0.15) * uHalation * 2.5;
+  }
 
   if (uSharpen > 0.0) {
-    float short_ = min(uSize.x, uSize.y);
     vec2 st = vec2(short_ / uSize.x, short_ / uSize.y) / 1400.0;
     vec2 sx = uM * vec2(st.x, 0.0);
     vec2 sy = uM * vec2(0.0, st.y);
@@ -104,20 +122,82 @@ void main() {
 
   c += (hueTone(uShHue) * uShAmt * sh + hueTone(uHiHue) * uHiAmt * hi) * 0.25;
 
+  c = clamp(c, 0.0, 1.0);
+  c = vec3(curve(c.r, uCR1, uCR2, uCR3), curve(c.g, uCG1, uCG2, uCG3), curve(c.b, uCB1, uCB2, uCB3));
+  c = vec3(curve(c.r, uCL1, uCL2, uCL3), curve(c.g, uCL1, uCL2, uCL3), curve(c.b, uCL1, uCL2, uCL3));
+  c = clamp(c, 0.0, 1.0);
+
+  if (uLutAmt > 0.0 && uLutN > 0.0) c = mix(c, texture(lutTex, (c * (uLutN - 1.0) + 0.5) / uLutN).rgb, uLutAmt);
+
   vec2 d = (uv - 0.5) * vec2(uSize.x / min(uSize.x, uSize.y), uSize.y / min(uSize.x, uSize.y));
   float v = smoothstep(0.25, 0.95, length(d));
   c *= 1.0 - uVignette * v * 0.85;
 
   if (uGrain > 0.0) {
-    float cell = min(uSize.x, uSize.y) / 700.0;
+    float cell = short_ / 700.0 * (1.0 + uGrainSize * 3.0);
     uvec2 g = uvec2(floor(uv * uSize / max(cell, 1.0)));
     float n = hash(g) + hash(g + 7919u) - 1.0;
     float lum = luma(c);
-    c += n * uGrain * 0.16 * (1.0 - abs(lum - 0.45) * 1.3);
+    vec3 nn = vec3(hash(g + 3u) + hash(g + 5u), hash(g + 11u) + hash(g + 13u), hash(g + 17u) + hash(g + 19u)) - 1.0;
+    c += mix(vec3(n), nn, uGrainCol) * uGrain * 0.16 * (1.0 - abs(lum - 0.45) * 1.3);
+  }
+
+  c = mix(clamp(c, 0.0, 1.0), c0, uDilute);
+
+  if (uDust > 0.0) {
+    vec2 cp = uv * uSize / (short_ * 0.01);
+    if (hash(uvec2(floor(cp)) + 31337u) > 1.0 - 0.004 * uDust)
+      c = mix(c, vec3(0.9), (1.0 - smoothstep(0.1, 0.45, length(fract(cp) - 0.5))) * 0.7);
+    float col = floor(uv.x * uSize.x / (short_ * 0.002));
+    if (hash(uvec2(col, 77u)) > 1.0 - 0.01 * uDust) c = mix(c, vec3(0.85), 0.25 * step(hash(uvec2(col, uint(uSeed))), 0.5));
+  }
+
+  if (uPerf > 0.5) { // shortcut: les perforations recouvrent l'image (pas de bords ajoutés)
+    vec2 px = uv * uSize;
+    float sw = short_ * 0.075, edge = min(px.x, uSize.x - px.x), period = short_ * 0.06;
+    if (edge < sw) {
+      c = vec3(0.05, 0.035, 0.03);
+      if (abs(edge - sw * 0.5) < sw * 0.22 && abs(mod(px.y, period) - period * 0.5) < period * 0.28) c = vec3(0.9, 0.85, 0.75);
+    }
+  }
+
+  if (uBars > 0.0) { // shortcut: ratio 2,39:1 borné à 25 % de hauteur minimum (portraits)
+    float r = mix(1.0, clamp(uSize.x / uSize.y / 2.39, 0.25, 1.0), uBars);
+    if (abs(uv.y - 0.5) > r * 0.5) c = vec3(0.0);
+  }
+
+  if (uSplit >= 0.0) { // avant/après : à droite du trait = image d'origine
+    if (uv.x > uSplit) c = c0;
+    if (abs(uv.x - uSplit) * uSize.x < max(1.0, short_ * 0.002)) c = vec3(1.0);
   }
 
   o = vec4(clamp(c, 0.0, 1.0), 1.0);
 }"""
+
+/** LUT 3D .cube (taille n, données RGB, R varie le plus vite). shortcut: DOMAIN_MIN/MAX et LUT_1D ignorés/refusés. */
+class Lut(val n: Int, val buf: java.nio.FloatBuffer)
+
+object LutStore {
+    @Volatile var cur: Lut? = null
+
+    fun parse(text: String): Lut {
+        var n = 0; val v = ArrayList<Float>()
+        for (raw in text.lineSequence()) {
+            val l = raw.trim()
+            if (l.isEmpty() || l[0] == '#') continue
+            val t = l.split(Regex("\\s+"))
+            when {
+                t[0] == "LUT_3D_SIZE" -> n = t[1].toInt()
+                t[0] == "LUT_1D_SIZE" -> throw IllegalArgumentException("LUT 1D non supportée")
+                t[0][0].isDigit() || t[0][0] == '-' || t[0][0] == '.' -> { require(t.size >= 3) { "ligne invalide" }; for (i in 0..2) v += t[i].toFloat() }
+            }
+        }
+        require(n in 2..65 && v.size == n * n * n * 3) { "LUT .cube 3D invalide" }
+        val b = ByteBuffer.allocateDirect(v.size * 4).order(ByteOrder.nativeOrder()).asFloatBuffer()
+        for (x in v) b.put(x)
+        return Lut(n, b.also { it.position(0) })
+    }
+}
 
 /** Fait correspondre le repère d'affichage (uv global 0..1, y vers le bas) à une texture décodée. */
 class TexMap(val m: FloatArray, val b: FloatArray)
@@ -151,6 +231,8 @@ private operator fun FloatArray.component6() = this[5]
 class FilterGl(external: Boolean) {
     private val prog = G.glCreateProgram()
     private val loc = HashMap<String, Int>()
+    private var lutTex = 0
+    private var lutUp: Lut? = null
     private val quad = ByteBuffer.allocateDirect(32).order(ByteOrder.nativeOrder()).asFloatBuffer()
         .apply { put(floatArrayOf(-1f, -1f, 1f, -1f, -1f, 1f, 1f, 1f)).position(0) }
 
@@ -170,10 +252,23 @@ class FilterGl(external: Boolean) {
     private fun u(n: String) = loc.getOrPut(n) { G.glGetUniformLocation(prog, n) }
 
     /** Dessine la région [off, off+scl] (uv globaux) de l'image d'affichage (sw×sh) ; la texture source est liée à l'unité 0. */
-    fun draw(p: FloatArray, m: TexMap, sw: Int, sh: Int, ox: Float, oy: Float, sx: Float, sy: Float, flip: Float, seed: Float = 1f) {
+    fun draw(p: FloatArray, m: TexMap, sw: Int, sh: Int, ox: Float, oy: Float, sx: Float, sy: Float, flip: Float, seed: Float = 1f, split: Float = -1f) {
         G.glUseProgram(prog)
         G.glEnableVertexAttribArray(0); G.glVertexAttribPointer(0, 2, G.GL_FLOAT, false, 0, quad)
         G.glUniform1i(u("tex"), 0)
+        val lut = LutStore.cur
+        if (lut != null) {
+            if (lutTex == 0) { val t = IntArray(1); G.glGenTextures(1, t, 0); lutTex = t[0] }
+            G.glActiveTexture(G.GL_TEXTURE1); G.glBindTexture(G.GL_TEXTURE_3D, lutTex)
+            if (lut !== lutUp) {
+                for ((k, v) in listOf(G.GL_TEXTURE_WRAP_S to G.GL_CLAMP_TO_EDGE, G.GL_TEXTURE_WRAP_T to G.GL_CLAMP_TO_EDGE, G.GL_TEXTURE_WRAP_R to G.GL_CLAMP_TO_EDGE, G.GL_TEXTURE_MIN_FILTER to G.GL_LINEAR, G.GL_TEXTURE_MAG_FILTER to G.GL_LINEAR))
+                    G.glTexParameteri(G.GL_TEXTURE_3D, k, v)
+                G.glTexImage3D(G.GL_TEXTURE_3D, 0, G.GL_RGB16F, lut.n, lut.n, lut.n, 0, G.GL_RGB, G.GL_FLOAT, lut.buf.duplicate())
+                lutUp = lut
+            }
+            G.glActiveTexture(G.GL_TEXTURE0)
+        }
+        G.glUniform1i(u("lutTex"), 1); G.glUniform1f(u("uLutN"), lut?.n?.toFloat() ?: 0f); G.glUniform1f(u("uSplit"), split)
         G.glUniform2f(u("uSize"), sw.toFloat(), sh.toFloat())
         G.glUniform1f(u("uSeed"), seed)
         G.glUniform2f(u("uOff"), ox, oy); G.glUniform2f(u("uScl"), sx, sy); G.glUniform1f(u("uFlip"), flip)

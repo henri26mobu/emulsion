@@ -10,8 +10,8 @@ android {
         applicationId = "dev.rangermobu.emulsion.kotlin"
         minSdk = 29 // RELATIVE_PATH MediaStore (album Emulsion) sans permission de stockage ; même minSdk que l'app Capacitor
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "2.1"
     }
     buildTypes {
         release {
